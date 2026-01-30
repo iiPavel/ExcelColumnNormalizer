@@ -39,79 +39,50 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
-      - name: Cache pip (non-Windows)
-        if: runner.os != 'Windows'
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}-py${{ matrix.python-version }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Cache pip (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/pip-cache
-          key: windows-pip-${{ hashFiles('**/requirements.txt') }}-py${{ matrix.python-version }}
-          restore-keys: |
-            windows-pip-
-
-      - name: Install dependencies (non-Windows, with retries)
+      - name: Install dependencies (macOS/Linux)
         if: runner.os != 'Windows'
         run: |
-          export PIP_CACHE_DIR="${{ runner.temp }}/pip-cache"
-          python - <<'PY'
-            import subprocess, time, sys
-            steps = [
-              ["-m","pip","install","--upgrade","pip"],
-              ["-m","pip","install","-r","requirements.txt"],
-              ["-m","pip","install","pyinstaller"]
-            ]
-            for cmd in steps:
-              for attempt in range(4):
-                try:
-                  subprocess.check_call([sys.executable] + cmd)
-                  break
-                except Exception as e:
-                  if attempt == 3:
-                    raise
-                  time.sleep(10)
-          PY
+          python -m pip install --upgrade pip
+          for i in {1..3}; do
+            python -m pip install -r requirements.txt && break || sleep 10
+          done
+          for i in {1..3}; do
+            python -m pip install pyinstaller && break || sleep 10
+          done
 
-      - name: Install dependencies (Windows, with retries)
+      - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
-          $env:PIP_CACHE_DIR = "${{ runner.temp }}\\pip-cache"
-          $steps = @(
-            @{ cmd = "-m pip install --upgrade pip" },
-            @{ cmd = "-m pip install -r requirements.txt" },
-            @{ cmd = "-m pip install pyinstaller" }
-          )
-          foreach ($s in $steps) {
-            $attempt = 0
-            while ($attempt -lt 4) {
-              try {
-                python $s.cmd
-                break
-              } catch {
-                $attempt++
-                if ($attempt -ge 4) { throw }
-                Start-Sleep -Seconds 10
-              }
-            }
+          python -m pip install --upgrade pip
+          foreach ($attempt in 1..3) {
+            python -m pip install -r requirements.txt
+            if ($?) { break }
+            Start-Sleep -Seconds 10
+          }
+          foreach ($attempt in 1..3) {
+            python -m pip install pyinstaller
+            if ($?) { break }
+            Start-Sleep -Seconds 10
           }
 
       - name: Build with PyInstaller (macOS)
         if: runner.os == 'macOS'
         run: |
+          set -e
+          echo "Starting macOS build..."
+          ls -la scripts/
           chmod +x scripts/*.sh
+          echo "Running PyInstaller..."
           pyinstaller --noconfirm app.spec
+          echo "Packaging app..."
           ./scripts/package_app.sh
+          echo "Creating zip archive..."
           ditto -c -k --sequesterRsrc --keepParent \
             "dist/ExcelColumnNormalizer.app" \
             "dist/ExcelColumnNormalizer-macOS-${{ matrix.arch }}.zip"
+          echo "Build complete, listing dist/"
+          ls -lh dist/
 
       - name: Build with PyInstaller (Windows)
         if: runner.os == 'Windows'
