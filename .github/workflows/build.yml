@@ -1,0 +1,90 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-latest
+            python-version: '3.11'
+            arch: arm64
+            
+          # Windows x64
+          - os: windows-latest
+            python-version: '3.11'
+            arch: x64
+
+    runs-on: ${{ matrix.os }}
+    name: Build on ${{ matrix.os }} (${{ matrix.arch }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          chmod +x scripts/*.sh
+          pyinstaller --noconfirm app.spec
+          ./scripts/package_app.sh
+          ditto -c -k --sequesterRsrc --keepParent \
+            "dist/ExcelColumnNormalizer.app" \
+            "dist/ExcelColumnNormalizer-macOS-${{ matrix.arch }}.zip"
+
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          pyinstaller --noconfirm app_windows.spec
+          Compress-Archive -Path "dist\ExcelColumnNormalizer" -DestinationPath "dist\ExcelColumnNormalizer-Windows-${{ matrix.arch }}.zip" -Force
+
+      - name: Upload macOS artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ExcelColumnNormalizer-macOS-${{ matrix.arch }}
+          path: dist/ExcelColumnNormalizer-macOS-${{ matrix.arch }}.zip
+          retention-days: 30
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ExcelColumnNormalizer-Windows-${{ matrix.arch }}
+          path: dist/ExcelColumnNormalizer-Windows-${{ matrix.arch }}.zip
+          retention-days: 30
+
+      - name: Create Release and Upload Assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ExcelColumnNormalizer-*.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
