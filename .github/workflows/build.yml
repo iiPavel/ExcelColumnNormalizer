@@ -89,7 +89,19 @@ jobs:
         shell: powershell
         run: |
           pyinstaller --noconfirm app_windows.spec
-          Compress-Archive -Path "dist\ExcelColumnNormalizer" -DestinationPath "dist\ExcelColumnNormalizer-Windows-${{ matrix.arch }}.zip" -Force
+          # Compress output: handle both onefile (ExcelColumnNormalizer.exe) and onedir (dist\ExcelColumnNormalizer folder)
+          $exePath = Join-Path -Path $PWD -ChildPath "dist\ExcelColumnNormalizer.exe"
+          $dirPath = Join-Path -Path $PWD -ChildPath "dist\ExcelColumnNormalizer"
+          $zipPath = Join-Path -Path $PWD -ChildPath "dist\ExcelColumnNormalizer-Windows-${{ matrix.arch }}.zip"
+          if (Test-Path $dirPath) {
+            Compress-Archive -Path $dirPath -DestinationPath $zipPath -Force
+          } elseif (Test-Path $exePath) {
+            Compress-Archive -Path $exePath -DestinationPath $zipPath -Force
+          } else {
+            Write-Host "Contents of dist/:"; Get-ChildItem -Path dist -Recurse | ForEach-Object { Write-Host $_.FullName }
+            Write-Error "Build output not found in dist\\. Expected either ExcelColumnNormalizer.exe or dist\\ExcelColumnNormalizer folder."
+            exit 1
+          }
 
       - name: Upload macOS artifact
         if: runner.os == 'macOS'
