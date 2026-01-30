@@ -48,8 +48,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install dependencies (with retries)
+      - name: Cache pip (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/pip-cache
+          key: windows-pip-${{ hashFiles('**/requirements.txt') }}-py${{ matrix.python-version }}
+          restore-keys: |
+            windows-pip-
+
+      - name: Install dependencies (non-Windows, with retries)
+        if: runner.os != 'Windows'
         run: |
+          export PIP_CACHE_DIR="${{ runner.temp }}/pip-cache"
           python - <<'PY'
             import subprocess, time, sys
             steps = [
@@ -67,6 +78,30 @@ jobs:
                     raise
                   time.sleep(10)
           PY
+
+      - name: Install dependencies (Windows, with retries)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PIP_CACHE_DIR = "${{ runner.temp }}\\pip-cache"
+          $steps = @(
+            @{ cmd = "-m pip install --upgrade pip" },
+            @{ cmd = "-m pip install -r requirements.txt" },
+            @{ cmd = "-m pip install pyinstaller" }
+          )
+          foreach ($s in $steps) {
+            $attempt = 0
+            while ($attempt -lt 4) {
+              try {
+                python $s.cmd
+                break
+              } catch {
+                $attempt++
+                if ($attempt -ge 4) { throw }
+                Start-Sleep -Seconds 10
+              }
+            }
+          }
 
       - name: Build with PyInstaller (macOS)
         if: runner.os == 'macOS'
